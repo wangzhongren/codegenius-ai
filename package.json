@@ -1,7 +1,7 @@
 {
   "name": "codegenius-ai",
   "displayName": "CodeGenius AI",
-  "description": "AI-powered  programming assistant integrated into VS Code",
+  "description": "AI-powered Python programming assistant integrated into VS Code",
   "version": "0.0.1",
   "engines": {
     "vscode": "^1.85.0"
@@ -74,6 +74,13 @@
       }
     }
   },
+  "files": [
+    "out/**/*.js",
+    "out/**/*.js.map",
+    "media/**/*",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
@@ -87,5 +94,14 @@
     "@types/vscode": "^1.85.0",
     "@types/node": "18.x",
     "typescript": "^5.3.0"
-  }
+  },
+   "repository": {
+    "type": "git",
+    "url": "https://github.com/wangzhongren/codegenius-ai.git"
+  },
+  "bugs": {
+    "url": "https://github.com/wangzhongren/codegenius-ai/issues"
+  },
+  "homepage": "https://github.com/wangzhongren/codegenius-ai#readme",
+  "license": "MIT"
 }
