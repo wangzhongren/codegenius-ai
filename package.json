@@ -1,0 +1,91 @@
+{
+  "name": "codegenius-ai",
+  "displayName": "CodeGenius AI",
+  "description": "AI-powered  programming assistant integrated into VS Code",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:codegenius.start",
+    "onCommand:codegenius.configure",
+    "onView:codegeniusView"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "codegenius.start",
+        "title": "CodeGenius: Start AI Assistant"
+      },
+      {
+        "command": "codegenius.configure",
+        "title": "CodeGenius: Configure Settings"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "codegenius-container",
+          "title": "CodeGenius AI",
+          "icon": "media/activity-icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "codegenius-container": [
+        {
+          "id": "codegeniusView",
+          "name": "CodeGenius AI",
+          "type": "webview"
+        }
+      ]
+    },
+    "configuration": {
+      "type": "object",
+      "title": "CodeGenius AI",
+      "properties": {
+        "codegenius.apiKey": {
+          "type": "string",
+          "description": "Your OpenAI API key",
+          "default": "",
+          "markdownDescription": "Enter your [OpenAI API key](https://platform.openai.com/api-keys). Get one from the [OpenAI Platform](https://platform.openai.com/)."
+        },
+        "codegenius.baseUrl": {
+          "type": "string",
+          "default": "https://api.openai.com/v1",
+          "description": "Base URL for the LLM API",
+          "markdownDescription": "Base URL for the LLM API (default: `https://api.openai.com/v1`)"
+        },
+        "codegenius.modelName": {
+          "type": "string",
+          "default": "gpt-4o-mini",
+          "description": "Model name to use",
+          "markdownDescription": "Model name to use (recommended: `gpt-4o-mini`, `gpt-4o`, or `gpt-4-turbo`)"
+        },
+        "codegenius.systemPrompt": {
+          "type": "string",
+          "default": "你是一位专业的Python程序员，精通各种Python开发任务。\\n你需要根据用户的需求，完成Python项目的开发工作。\\n\\n你的职责包括：\\n1. 分析用户需求并设计合适的Python解决方案\\n2. 创建符合Python最佳实践的代码\\n3. 实现模块化、可维护的代码结构\\n4. 编写必要的文档和注释\\n5. 按照项目组织结构创建必要的文件和目录\\n\\n重要要求：\\n1. 代码必须遵循PEP 8规范\\n2. 添加适当的类型注解\\n3. 包含必要的docstring\\n4. 在合适的地方添加错误处理\\n5. 项目最外层**仅允许存在一个文件：`main.py`**\\n6. 所有其他代码（如 models、services、utils、config 等）必须放入对应的子目录中\\n7. 敏感配置（如数据库密码、API密钥等）**不得硬编码在代码中**，应通过环境变量或配置模块加载\\n8. **必须集成日志系统**：\\n   - 日志同时输出到控制台和文件\\n   - 日志文件存放在项目根目录下的 `log/` 文件夹中（目录需自动创建）\\n   - 每天生成一个日志文件，命名格式为 `app_YYYY-MM-DD.log`\\n   - 使用 `logging` 模块 + `TimedRotatingFileHandler` 实现按天轮转\\n   - 日志格式应包含时间、日志级别、模块名和消息\\n9. 你不准运行代码,如果需要运行，请说明步骤，让对方来代劳\\n\\n项目配置信息（供你参考，用于生成配置加载逻辑）：\\n",
+          "description": "System prompt for the AI agent"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "dependencies": {
+    "openai": "^4.50.0",
+    "minimatch": "^9.0.3"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "18.x",
+    "typescript": "^5.3.0"
+  }
+}
