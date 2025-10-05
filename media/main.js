@@ -5,7 +5,6 @@ const vscode = acquireVsCodeApi();
 let isStreaming = false;
 let hasInitialized = false;
 let currentAiMessageElement = null;
-let isPaused = false;
 let lastAiMessageContent = ''; // 保存最后的AI消息内容，用于恢复
 
 // 初始化
@@ -15,14 +14,14 @@ function initializeApp() {
     const userInput = document.getElementById('user-input');
     const sendButton = document.getElementById('send-button');
     const clearSessionBtn = document.getElementById('clear-session-btn');
-    const pauseBtn = document.getElementById('pause-btn');
+    const stopBtn = document.getElementById('stop-btn');
 
     console.log('DOM Elements found:', {
         chatMessages: !!chatMessages,
         userInput: !!userInput,
         sendButton: !!sendButton,
         clearSessionBtn: !!clearSessionBtn,
-        pauseBtn: !!pauseBtn
+        stopBtn: !!stopBtn
     });
 
     if (!chatMessages || !userInput || !sendButton) {
@@ -54,16 +53,16 @@ function initializeApp() {
         console.error('❌ Clear session button not found');
     }
 
-    if (pauseBtn) {
-        pauseBtn.addEventListener('click', (e) => {
-            console.log('⏸️ Pause button clicked');
+    if (stopBtn) {
+        stopBtn.addEventListener('click', (e) => {
+            console.log('⏹️ Stop button clicked');
             e.preventDefault();
             e.stopPropagation();
-            togglePause();
+            abortCurrentChat();
         });
-        console.log('✅ Pause button event listener added');
+        console.log('✅ Stop button event listener added');
     } else {
-        console.error('❌ Pause button not found');
+        console.error('❌ Stop button not found');
     }
 
     // Request load session
@@ -106,12 +105,11 @@ function adjustTextareaHeight(userInput) {
 
 function handleSendMessage(userInput, sendButton, chatMessages) {
     const text = userInput.value.trim();
-    // Allow sending messages when paused (isPaused = true) but not when actively streaming (isStreaming = true and isPaused = false)
-    if (!text || (isStreaming && !isPaused)) return;
+    // Allow sending messages at any time - this will interrupt current streaming if needed
+    if (!text) return;
     
     userInput.value = '';
     adjustTextareaHeight(userInput);
-    setUIState(false, userInput, sendButton);
     
     // Reset last AI message content when sending new message
     lastAiMessageContent = '';
@@ -345,72 +343,38 @@ function endStream() {
     // Get UI elements and enable them
     const userInput = document.getElementById('user-input');
     const sendButton = document.getElementById('send-button');
-    setUIState(true, userInput, sendButton);
-    
-    // Hide pause button when streaming ends
-    const pauseBtn = document.getElementById('pause-btn');
-    if (pauseBtn) {
-        pauseBtn.style.display = 'none';
-    }
-}
-
-function setUIState(enabled, userInput = null, sendButton = null) {
-    isStreaming = !enabled;
-    // When enabled (not streaming), always enable input
-    // When disabled (streaming), enable input only if paused
     if (userInput) {
-        userInput.disabled = !enabled && !isPaused;
+        userInput.disabled = false;
     }
     if (sendButton) {
-        sendButton.disabled = !enabled && !isPaused;
-    }
-    if (enabled && userInput) {
-        userInput.focus();
+        sendButton.disabled = false;
     }
     
-    // Show/hide pause button based on streaming state
-    const pauseBtn = document.getElementById('pause-btn');
-    if (pauseBtn) {
-        if (isStreaming) {
-            pauseBtn.style.display = 'block';
-            updatePauseButtonStyle(isPaused);
-        } else {
-            pauseBtn.style.display = 'none';
-        }
+    // Hide stop button when streaming ends
+    const stopBtn = document.getElementById('stop-btn');
+    if (stopBtn) {
+        stopBtn.style.display = 'none';
+    }
+    
+    isStreaming = false;
+}
+
+function clearCurrentResponse() {
+    // Clear the current streaming AI response
+    const chatMessages = document.getElementById('chat-messages');
+    if (chatMessages && currentAiMessageElement) {
+        chatMessages.removeChild(currentAiMessageElement);
+        currentAiMessageElement = null;
+        lastAiMessageContent = '';
+        console.log('✅ Current AI response cleared from UI');
     }
 }
 
-function togglePause() {
-    isPaused = !isPaused;
-    updatePauseButtonStyle(isPaused);
-    
-    // Update UI state to reflect pause change
-    const userInput = document.getElementById('user-input');
-    const sendButton = document.getElementById('send-button');
-    if (userInput && sendButton) {
-        userInput.disabled = !isStreaming || isPaused ? false : true;
-        sendButton.disabled = !isStreaming || isPaused ? false : true;
-    }
-    
-    // Send toggle message to backend
+function abortCurrentChat() {
+    // Send abort message to backend
     vscode.postMessage({
-        command: 'togglePause'
+        command: 'abortCurrentChat'
     });
-}
-
-function updatePauseButtonStyle(isPaused) {
-    const pauseBtn = document.getElementById('pause-btn');
-    if (pauseBtn) {
-        if (isPaused) {
-            pauseBtn.textContent = '▶️';
-            pauseBtn.title = '继续流式输出';
-            pauseBtn.classList.add('paused');
-        } else {
-            pauseBtn.textContent = '⏸️';
-            pauseBtn.title = '暂停流式输出';
-            pauseBtn.classList.remove('paused');
-        }
-    }
 }
 
 function scrollToBottom(chatMessages) {
@@ -461,8 +425,6 @@ window.addEventListener('message', event => {
     console.log('📥 Received message from backend:', message.command);
     
     const chatMessages = document.getElementById('chat-messages');
-    const userInput = document.getElementById('user-input');
-    const sendButton = document.getElementById('send-button');
 
     switch (message.command) {
         case 'addUserMessage':
@@ -470,6 +432,16 @@ window.addEventListener('message', event => {
             break;
         case 'addStreamToken':
             addStreamToken(message.token, chatMessages);
+            isStreaming = true; // Set streaming state when receiving tokens
+            
+            // Show stop button when streaming starts
+            const stopBtn = document.getElementById('stop-btn');
+            if (stopBtn) {
+                stopBtn.style.display = 'block';
+            }
+            
+            // Note: We don't disable input here because input should remain enabled
+            // so user can send new messages or click stop
             break;
         case 'addSystemMessage':
             addSystemMessage(message.text, chatMessages);
@@ -493,16 +465,8 @@ window.addEventListener('message', event => {
                 showWelcomeMessage(chatMessages);
             }
             break;
-        case 'pauseToggled':
-            // Update local pause state and button style
-            isPaused = message.isPaused;
-            updatePauseButtonStyle(isPaused);
-            
-            // Update UI state immediately
-            if (userInput && sendButton) {
-                userInput.disabled = !isStreaming || isPaused ? false : true;
-                sendButton.disabled = !isStreaming || isPaused ? false : true;
-            }
+        case 'clearCurrentResponse':
+            clearCurrentResponse();
             break;
     }
 });

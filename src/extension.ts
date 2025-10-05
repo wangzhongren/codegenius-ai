@@ -6,6 +6,8 @@ import { CodeGeniusViewProvider } from './CodeGeniusViewProvider';
 export function activate(context: vscode.ExtensionContext) {
     // Register the view provider for the sidebar
     const viewProvider = new CodeGeniusViewProvider(context.extensionUri);
+    console.log(11111111111);
+    console.log(222222);
     context.subscriptions.push(
         vscode.window.registerWebviewViewProvider(
             CodeGeniusViewProvider.viewType,
@@ -55,7 +57,36 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.executeCommand('workbench.action.openSettings', 'codegenius');
     });
 
-    context.subscriptions.push(startCommand, configureCommand);
+    // Command to pause stream
+    const pauseStreamCommand = vscode.commands.registerCommand('codegenius.pauseStream', () => {
+        // This command is handled by the webview itself
+        // The webview sends 'togglePause' message to backend
+        console.log('Pause stream command triggered');
+    });
+
+    // Command to resume stream  
+    const resumeStreamCommand = vscode.commands.registerCommand('codegenius.resumeStream', () => {
+        // This command is also handled by the webview itself
+        console.log('Resume stream command triggered');
+    });
+
+    // Command to abort current chat
+    const abortCurrentChatCommand = vscode.commands.registerCommand('codegenius.abortCurrentChat', () => {
+        // Send abort message to the webview view provider
+        if (viewProvider) {
+            // We need to access the webview to send message
+            // Since we don't have direct access, we'll rely on the webview handling it
+            console.log('Abort current chat command triggered - handled by webview');
+        }
+    });
+
+    context.subscriptions.push(
+        startCommand, 
+        configureCommand, 
+        pauseStreamCommand, 
+        resumeStreamCommand, 
+        abortCurrentChatCommand
+    );
 }
 
 export function deactivate() {}

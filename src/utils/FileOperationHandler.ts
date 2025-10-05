@@ -35,7 +35,7 @@ export class FileOperationHandler {
             "<read_file path=\"文件名\" />\n\n" +
 
             "<update_file path=\"相对路径\">\n" +
-            "新内容\n" +
+            "完整的代码（可直接覆盖）\n" +
             "</update_file>\n\n" +
 
             "<delete_file path=\"文件名\" />\n\n" +
@@ -49,11 +49,11 @@ export class FileOperationHandler {
             "  <!-- 有 filter：递归搜索该目录及其子目录并匹配 -->\n\n" +
 
             "📌 规则说明：\n" +
-            "- 所有路径相对于 output/ 目录\n" +
+            "- 所有路径相对于 ./ 目录\n" +
             "- 不允许 ../ 路径穿越\n" +
             "- 更新文件之前必须要先阅读文件\n" +
             "- `filter` 支持通配符：`*` 匹配任意字符，`?` 匹配单个字符\n" +
-            "- 过滤时，匹配的是 **相对于 output/ 的完整路径**（例如：log/app_2024-06-25.log）\n" +
+            "- 过滤时，匹配的是 **相对于 ./ 的完整路径**（例如：log/app_2024-06-25.log）\n" +
             "- 内容可包含换行、冒号、引号等字符\n" +
             "- 如果需要分步决策，请返回 <again reason=\"...\" />\n" +
             "- 系统将自动执行并反馈结果，您可以基于新状态继续操作。\n\n"

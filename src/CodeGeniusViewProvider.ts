@@ -14,6 +14,7 @@ export class CodeGeniusViewProvider implements vscode.WebviewViewProvider {
     private _isStreaming: boolean = false;
     private _isPaused: boolean = false;
     private _currentChatPromise: Promise<void> | null = null;
+    private _currentAbortController: AbortController | null = null;
 
     constructor(private readonly _extensionUri: vscode.Uri) {}
 
@@ -49,11 +50,10 @@ export class CodeGeniusViewProvider implements vscode.WebviewViewProvider {
                         await this._clearSession();
                         return;
                     case 'togglePause':
-                        this._isPaused = !this._isPaused;
-                        this._view?.webview.postMessage({ 
-                            command: 'pauseToggled', 
-                            isPaused: this._isPaused 
-                        });
+                        await this._togglePause();
+                        return;
+                    case 'abortCurrentChat':
+                        this._abortCurrentChat();
                         return;
                 }
             }
@@ -155,6 +155,54 @@ export class CodeGeniusViewProvider implements vscode.WebviewViewProvider {
         }
     }
 
+    private async _togglePause(): Promise<void> {
+        if (!this._agent || !this._isStreaming) {
+            return;
+        }
+        
+        this._isPaused = !this._isPaused;
+        this._agent.setPaused(this._isPaused);
+        
+        this._view?.webview.postMessage({ 
+            command: 'pauseToggled', 
+            isPaused: this._isPaused 
+        });
+        
+        console.log(`⏸️ Pause toggled: ${this._isPaused}`);
+    }
+
+    // Helper function to check if error is an abort error
+    private isAbortError(error: any): boolean {
+        if (!error) return false;
+        
+        // Check for AbortError name
+        if (error.name === 'AbortError') return true;
+        
+        // Check for DOMException with ABORT_ERR code (code 20)
+        if (error instanceof DOMException && error.code === 20) return true;
+        
+        // Check for common abort error messages
+        const abortMessages = ['abort', 'aborted', 'cancel', 'cancelled'];
+        const errorMessage = error.message?.toLowerCase() || '';
+        return abortMessages.some(msg => errorMessage.includes(msg));
+    }
+
+    private _abortCurrentChat(): void {
+        if (this._currentAbortController) {
+            this._currentAbortController.abort();
+            this._currentAbortController = null;
+        }
+        if (this._agent && typeof this._agent.abortCurrentChat === 'function') {
+            this._agent.abortCurrentChat();
+        }
+        this._isStreaming = false;
+        this._isPaused = false;
+        this._currentAiMessage = '';
+        this._view?.webview.postMessage({ command: 'endStream' });
+        this._view?.webview.postMessage({ command: 'clearCurrentResponse' });
+        console.log('✅ Current chat aborted successfully');
+    }
+
     private async _handleUserMessage(text: string) {
         if (!this._agent) {
             await this._initializeAgent();
@@ -163,14 +211,12 @@ export class CodeGeniusViewProvider implements vscode.WebviewViewProvider {
             }
         }
 
-        // If there's an ongoing chat, we should interrupt it
+        // If there's an ongoing chat, interrupt it properly
         if (this._isStreaming) {
             console.log(' INTERRUPTION: New message received while streaming, interrupting current response');
-            // Reset streaming state to allow new message
-            this._isStreaming = false;
-            this._isPaused = false;
-            // Note: We can't actually cancel the backend AI request, but we can ignore its tokens
-            // and start a new conversation
+            
+            // Properly abort the current AI request
+            this._abortCurrentChat();
         }
 
         // Add user message to local messages array immediately
@@ -199,26 +245,38 @@ export class CodeGeniusViewProvider implements vscode.WebviewViewProvider {
             this._isStreaming = true;
             this._isPaused = false;
             
+            // Ensure agent is not paused
+            this._agent.setPaused(false);
+            
+            // Create new AbortController for this chat
+            this._currentAbortController = new AbortController();
+            
             // Stream response from agent
-            const chatPromise = this._agent.chat(text, (token) => {
-                if (!this._isPaused && this._isStreaming) {
+            const chatPromise = this._agent.chat(
+                text, 
+                (token) => {
+                    // The agent's BaseAgent will handle pause state internally
+                    // We don't need to check _isPaused here anymore
                     this._currentAiMessage += token;
                     this._view?.webview.postMessage({ command: 'addStreamToken', token });
-                }
-            }, (systemMessage) => {
-                // Handle system messages separately - add as system messages to chat
-                const systemMsg: ChatMessage = {
-                    role: 'ai',
-                    content: systemMessage,
-                    timestamp: Date.now()
-                };
-                this._messages.push(systemMsg);
-                this._view?.webview.postMessage({ command: 'addSystemMessage', text: systemMessage });
-            });
+                }, 
+                (systemMessage) => {
+                    // Handle system messages separately - add as system messages to chat
+                    const systemMsg: ChatMessage = {
+                        role: 'ai',
+                        content: systemMessage,
+                        timestamp: Date.now()
+                    };
+                    this._messages.push(systemMsg);
+                    this._view?.webview.postMessage({ command: 'addSystemMessage', text: systemMessage });
+                },
+                this._currentAbortController.signal
+            );
 
             this._currentChatPromise = chatPromise;
             await chatPromise;
             this._currentChatPromise = null;
+            this._currentAbortController = null;
 
             // Add complete AI response to messages (excluding system messages which are already added)
             const aiMessage: ChatMessage = {
@@ -237,6 +295,15 @@ export class CodeGeniusViewProvider implements vscode.WebviewViewProvider {
             this._view?.webview.postMessage({ command: 'endStream' });
             this._isStreaming = false;
         } catch (error) {
+            // Check if error is due to abortion
+            if (this.isAbortError(error)) {
+                console.log('Chat was aborted, not treating as error');
+                this._isStreaming = false;
+                this._currentChatPromise = null;
+                this._currentAbortController = null;
+                return;
+            }
+            
             const errorMessage: ChatMessage = {
                 role: 'error',
                 content: `错误: ${error}`,
@@ -252,6 +319,7 @@ export class CodeGeniusViewProvider implements vscode.WebviewViewProvider {
             this._view?.webview.postMessage({ command: 'addErrorMessage', text: `错误: ${error}` });
             this._isStreaming = false;
             this._currentChatPromise = null;
+            this._currentAbortController = null;
         }
     }
 
@@ -278,7 +346,7 @@ export class CodeGeniusViewProvider implements vscode.WebviewViewProvider {
                     <div class="header-content">
                         CodeGenius AI
                         <div class="header-buttons">
-                            <button id="pause-btn" title="暂停/继续流式输出" style="display: none;">⏸️</button>
+                            <button id="stop-btn" title="暂停/继续流式输出" style="display: none;">⏹️</button>
                             <button id="clear-session-btn" title="清除会话历史">🗑️</button>
                         </div>
                     </div>

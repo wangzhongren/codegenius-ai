@@ -9,8 +9,8 @@ export class CodeGeniusPanel {
     private _agent: CodeGeniusAgent;
     private _disposables: vscode.Disposable[] = [];
     private _isStreaming: boolean = false;
-    private _isPaused: boolean = false;
     private _currentChatPromise: Promise<void> | null = null;
+    private _currentAbortController: AbortController | null = null;
 
     public static createOrShow(extensionUri: vscode.Uri, agent: CodeGeniusAgent) {
         const column = vscode.window.activeTextEditor
@@ -59,12 +59,8 @@ export class CodeGeniusPanel {
                         this._panel.webview.postMessage({ command: 'clearSession' });
                         vscode.window.showInformationMessage('会话历史已清除');
                         return;
-                    case 'togglePause':
-                        this._isPaused = !this._isPaused;
-                        this._panel.webview.postMessage({ 
-                            command: 'pauseToggled', 
-                            isPaused: this._isPaused 
-                        });
+                    case 'abortCurrentChat':
+                        this._abortCurrentChat();
                         return;
                 }
             },
@@ -73,15 +69,43 @@ export class CodeGeniusPanel {
         );
     }
 
+    // Helper function to check if error is an abort error
+    private isAbortError(error: any): boolean {
+        if (!error) return false;
+        
+        // Check for AbortError name
+        if (error.name === 'AbortError') return true;
+        
+        // Check for DOMException with ABORT_ERR code (code 20)
+        if (error instanceof DOMException && error.code === 20) return true;
+        
+        // Check for common abort error messages
+        const abortMessages = ['abort', 'aborted', 'cancel', 'cancelled'];
+        const errorMessage = error.message?.toLowerCase() || '';
+        return abortMessages.some(msg => errorMessage.includes(msg));
+    }
+
+    private _abortCurrentChat(): void {
+        if (this._currentAbortController) {
+            this._currentAbortController.abort();
+            this._currentAbortController = null;
+        }
+        if (this._agent && typeof this._agent.abortCurrentChat === 'function') {
+            this._agent.abortCurrentChat();
+        }
+        this._isStreaming = false;
+        this._panel.webview.postMessage({ command: 'endStream' });
+        this._panel.webview.postMessage({ command: 'clearCurrentResponse' });
+        console.log('✅ Current chat aborted successfully in panel');
+    }
+
     private async _handleUserMessage(text: string) {
-        // If there's an ongoing chat, we should interrupt it
+        // If there's an ongoing chat, interrupt it properly
         if (this._isStreaming) {
             console.log(' INTERRUPTION: New message received while streaming, interrupting current response');
-            // Reset streaming state to allow new message
-            this._isStreaming = false;
-            this._isPaused = false;
-            // Note: We can't actually cancel the backend AI request, but we can ignore its tokens
-            // and start a new conversation
+            
+            // Properly abort the current AI request
+            this._abortCurrentChat();
         }
 
         // Add user message to chat
@@ -89,24 +113,40 @@ export class CodeGeniusPanel {
 
         try {
             this._isStreaming = true;
-            this._isPaused = false;
+            
+            // Create new AbortController for this chat
+            this._currentAbortController = new AbortController();
             
             // Stream response from agent
-            const chatPromise = this._agent.chat(text, (token) => {
-                if (!this._isPaused && this._isStreaming) {
+            const chatPromise = this._agent.chat(
+                text, 
+                (token) => {
                     this._panel.webview.postMessage({ command: 'addStreamToken', token });
-                }
-            });
+                },
+                undefined, // no system message callback for panel
+                this._currentAbortController.signal
+            );
             this._currentChatPromise = chatPromise;
             await chatPromise;
             this._currentChatPromise = null;
+            this._currentAbortController = null;
             
             this._panel.webview.postMessage({ command: 'endStream' });
             this._isStreaming = false;
         } catch (error) {
+            // Check if error is due to abortion
+            if (this.isAbortError(error)) {
+                console.log('Chat was aborted, not treating as error');
+                this._isStreaming = false;
+                this._currentChatPromise = null;
+                this._currentAbortController = null;
+                return;
+            }
+            
             this._panel.webview.postMessage({ command: 'addErrorMessage', text: `Error: ${error}` });
             this._isStreaming = false;
             this._currentChatPromise = null;
+            this._currentAbortController = null;
         }
     }
 
@@ -120,7 +160,7 @@ export class CodeGeniusPanel {
     private _getHtmlForWebview(webview: vscode.Webview) {
         const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'media', 'main.js'));
         const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(this._extensionUri, 'media', 'main.css'));
-
+        
         return `<!DOCTYPE html>
         <html lang="en">
         <head>
@@ -135,7 +175,7 @@ export class CodeGeniusPanel {
                     <div class="header-content">
                         CodeGenius AI
                         <div class="header-buttons">
-                            <button id="pause-btn" title="暂停/继续流式输出" style="display: none;">⏸️</button>
+                            <button id="stop-btn" title="停止当前响应" style="display: none;">⏹️</button>
                             <button id="clear-session-btn" title="清除会话历史">🗑️</button>
                         </div>
                     </div>

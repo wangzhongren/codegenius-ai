@@ -14,6 +14,7 @@ export abstract class BaseLLM {
     abstract chat(
         context: ChatCompletionMessageParam[],
         temperature?: number,
-        maxTokens?: number
+        maxTokens?: number,
+        signal?: AbortSignal
     ): AsyncGenerator<string, void, unknown>;
 }
